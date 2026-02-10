@@ -25,6 +25,7 @@
   </dependencies>
 
   <build>
+    <sourceDirectory>.</sourceDirectory>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -42,7 +43,11 @@
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <version>3.3.0</version>
-        <configuration><mainClass>co.eci.snake.app.Main</mainClass></configuration>
+        <configuration>
+          <mainClass>co.eci.snake.app.Main</mainClass>
+          <includeProjectDependencies>true</includeProjectDependencies>
+          <includePluginDependencies>false</includePluginDependencies>
+        </configuration>
       </plugin>
     </plugins>
   </build>

@@ -19,8 +19,11 @@ public final class SnakeApp extends JFrame {
   private final Board board;
   private final GamePanel gamePanel;
   private final JButton actionButton;
+  private final JLabel statsLabel;
   private final GameClock clock;
-  private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
+  private final java.util.List<Snake> snakes = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+  private Long firstDeathTime = null;
+  private Snake firstDeadSnake = null; 
 
   public SnakeApp() {
     super("The Snake Race");
@@ -35,20 +38,26 @@ public final class SnakeApp extends JFrame {
     }
 
     this.gamePanel = new GamePanel(board, () -> snakes);
-    this.actionButton = new JButton("Action");
+    this.actionButton = new JButton("Start");
+    this.statsLabel = new JLabel("Press Start to begin", SwingConstants.CENTER);
+    statsLabel.setFont(new Font("Monospaced", Font.BOLD, 14));
+    statsLabel.setOpaque(true);
+    statsLabel.setBackground(new Color(240, 240, 240));
+    statsLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+    JPanel bottomPanel = new JPanel(new BorderLayout());
+    bottomPanel.add(statsLabel, BorderLayout.NORTH);
+    bottomPanel.add(actionButton, BorderLayout.SOUTH);
 
     setLayout(new BorderLayout());
     add(gamePanel, BorderLayout.CENTER);
-    add(actionButton, BorderLayout.SOUTH);
+    add(bottomPanel, BorderLayout.SOUTH);
 
     setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     pack();
     setLocationRelativeTo(null);
 
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
-
-    var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
 
     actionButton.addActionListener((ActionEvent e) -> togglePause());
 
@@ -125,16 +134,74 @@ public final class SnakeApp extends JFrame {
     }
 
     setVisible(true);
-    clock.start();
   }
 
   private void togglePause() {
-    if ("Action".equals(actionButton.getText())) {
-      actionButton.setText("Resume");
+    String currentText = actionButton.getText();
+    
+    if ("Start".equals(currentText)) {
+      var exec = Executors.newVirtualThreadPerTaskExecutor();
+      snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock, this::onSnakeDeath)));
+      clock.start();
+      actionButton.setText("Pause");
+      statsLabel.setText("Game Running - " + snakes.size() + " snakes racing!");
+      
+    } else if ("Pause".equals(currentText)) {
       clock.pause();
-    } else {
-      actionButton.setText("Action");
+
+      try {
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+
+      Snake longest = findLongestAliveSnake();
+
+      StringBuilder stats = new StringBuilder("⏸ PAUSED | ");
+      
+      if (longest != null) {
+        stats.append("Longest: Snake (").append(longest.length()).append(" segments)");
+      } else {
+        stats.append("No snakes alive");
+      }
+      
+      if (firstDeadSnake != null) {
+        stats.append(" | Worst: Snake died first (").append(firstDeadSnake.length()).append(" segments)");
+      }
+      
+      statsLabel.setText(stats.toString());
+      actionButton.setText("Resume");
+      
+    } else if ("Resume".equals(currentText)) {
       clock.resume();
+      actionButton.setText("Pause");
+      statsLabel.setText("Game Running - Race in progress!");
+    }
+  }
+
+  private Snake findLongestAliveSnake() {
+    Snake longest = null;
+    int maxLength = 0;
+
+    synchronized (snakes) {
+      for (Snake s : snakes) {
+        if (s.isAlive()) {
+          int len = s.length(); 
+          if (len > maxLength) {
+            maxLength = len;
+            longest = s;
+          }
+        }
+      }
+    }
+    
+    return longest;
+  }
+
+  private synchronized void onSnakeDeath(Snake snake) {
+    if (firstDeadSnake == null) {
+      firstDeadSnake = snake;
+      firstDeathTime = System.currentTimeMillis();
     }
   }
 
@@ -209,11 +276,10 @@ public final class SnakeApp extends JFrame {
         g2.fillPolygon(xs, ys, xs.length);
       }
 
-      // Serpientes
-      var snakes = snakesSupplier.get();
+      List<Snake> snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
-        var body = s.snapshot().toArray(new Position[0]);
+        Position[] body = s.snapshot().toArray(new Position[0]);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
           Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
